@@ -166,6 +166,11 @@ export class GroupQueue {
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
       fs.mkdirSync(inputDir, { recursive: true });
+      try {
+        fs.chmodSync(inputDir, 0o777);
+      } catch {
+        /* ignore on unsupported fs */
+      }
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
       const filepath = path.join(inputDir, filename);
       const tempPath = `${filepath}.tmp`;

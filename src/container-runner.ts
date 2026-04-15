@@ -17,6 +17,7 @@ import {
   ONECLI_URL,
   TIMEZONE,
 } from './config.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -146,25 +147,28 @@ function buildVolumeMounts(
   fs.mkdirSync(groupSessionsDir, { recursive: true });
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
+    const settingsEnv: Record<string, string> = {
+      // Enable agent swarms (subagent orchestration)
+      // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      // Load CLAUDE.md from additional mounted directories
+      // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+      // Enable Claude's memory feature (persists user preferences between sessions)
+      // https://code.claude.com/docs/en/memory#manage-auto-memory
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+    };
+    // Forward custom Anthropic base URL if set (e.g. for Vercel AI gateway).
+    // Read from .env first so systemd services (which don't load .bashrc) work.
+    const envFileVars = readEnvFile(['ANTHROPIC_BASE_URL']);
+    const anthropicBaseUrl =
+      envFileVars.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL;
+    if (anthropicBaseUrl) {
+      settingsEnv.ANTHROPIC_BASE_URL = anthropicBaseUrl;
+    }
     fs.writeFileSync(
       settingsFile,
-      JSON.stringify(
-        {
-          env: {
-            // Enable agent swarms (subagent orchestration)
-            // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
-            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-            // Load CLAUDE.md from additional mounted directories
-            // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
-            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-            // Enable Claude's memory feature (persists user preferences between sessions)
-            // https://code.claude.com/docs/en/memory#manage-auto-memory
-            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-          },
-        },
-        null,
-        2,
-      ) + '\n',
+      JSON.stringify({ env: settingsEnv }, null, 2) + '\n',
     );
   }
 
@@ -190,7 +194,12 @@ function buildVolumeMounts(
   const groupIpcDir = resolveGroupIpcPath(group.folder);
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  const ipcInputDir = path.join(groupIpcDir, 'input');
+  fs.mkdirSync(ipcInputDir, { recursive: true });
+  // Ensure the input directory is writable by any user (e.g. container's node
+  // user uid 1000 when the host runs as root uid 0), so the container can
+  // delete IPC files it has consumed.
+  fs.chmodSync(ipcInputDir, 0o777);
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
