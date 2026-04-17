@@ -145,6 +145,11 @@ function buildVolumeMounts(
     '.claude',
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
+  try {
+    fs.chmodSync(groupSessionsDir, 0o777);
+  } catch {
+    /* ignore on unsupported fs */
+  }
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
     const settingsEnv: Record<string, string> = {
@@ -313,6 +318,11 @@ export async function runContainerAgent(
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
+  try {
+    fs.chmodSync(groupDir, 0o777);
+  } catch {
+    /* ignore on unsupported fs */
+  }
 
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
